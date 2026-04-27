@@ -155,8 +155,14 @@ async def cmd_upload(reader, writer, local_path: str):
     await writer.drain()
 
     resp = await receive_msg(reader)
-    if not resp or resp.get("type") != "READY":
-        print(f"  Server rejected upload: {resp}")
+    if not resp:
+        print("  Upload failed: no response from server.")
+        return
+    if resp.get("type") == "ERR":
+        print(f"  Error: {resp.get('detail', resp.get('code'))}")
+        return
+    if resp.get("type") != "READY":
+        print(f"  Server rejected upload: {repr(resp)}")
         return
 
     print(f"  Uploading {src.name} ({filesize} bytes)...")
@@ -168,10 +174,16 @@ async def cmd_upload(reader, writer, local_path: str):
             sent += len(chunk)
 
     resp = await receive_msg(reader)
-    if resp and resp.get("type") == "OK":
+    if not resp:
+        print("  Upload failed: no response from server.")
+        return
+    if resp.get("type") == "ERR":
+        print(f"  Error: {resp.get('detail', resp.get('code'))}")
+        return
+    if resp.get("type") == "OK":
         print(f"  Upload complete: {resp.get('detail')}")
     else:
-        print(f"  Upload failed: {resp}")
+        print(f"  Upload failed: {repr(resp)}")
 
 
 async def cmd_download(reader, writer, filename: str):

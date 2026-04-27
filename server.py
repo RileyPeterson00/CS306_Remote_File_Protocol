@@ -177,10 +177,16 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     await writer.drain()
                     continue
 
+                dest = STORAGE_DIR / filename
+                if dest.is_file():
+                    send_msg(writer, "ERR", {"code": "FILE_EXISTS", "detail": f"'{filename}' already exists on the server (delete it or choose another name)"})
+                    await writer.drain()
+                    log.info("'%s' upload rejected: file exists '%s'", username, filename)
+                    continue
+
                 send_msg(writer, "READY", {})
                 await writer.drain()
 
-                dest = STORAGE_DIR / filename
                 received = 0
                 with open(dest, "wb") as fh:
                     # File bytes come right after READY, so keep reading fixed-size chunks
