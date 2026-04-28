@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 TCP_HOST = "0.0.0.0"
 TCP_PORT = 2077
+IO_TIMEOUT = 300.0
 STORAGE_DIR = Path("./server_files")
 STORAGE_DIR.mkdir(exist_ok=True)
 
@@ -59,7 +60,7 @@ def get_connect_ip() -> str:
 async def receive_msg(reader: asyncio.StreamReader) -> dict | None:
     """Read one \r\n-terminated JSON message. Returns None on disconnect."""
     try:
-        line = await asyncio.wait_for(reader.readline(), timeout=30.0)
+        line = await asyncio.wait_for(reader.readline(), timeout=IO_TIMEOUT)
     except asyncio.TimeoutError:
         return None
     if not line:
@@ -153,7 +154,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     # File bytes come right after READY, so keep reading fixed-size chunks until we reach the announced file size.
                     while received < filesize:
                         chunk = await asyncio.wait_for(
-                            reader.read(min(4096, filesize - received)), timeout=30.0
+                            reader.read(min(4096, filesize - received)), timeout=IO_TIMEOUT
                         )
                         if not chunk:
                             break
