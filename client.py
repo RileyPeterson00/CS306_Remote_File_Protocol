@@ -6,9 +6,6 @@ Interactive command-line client for the RFP file transfer server.
 import asyncio
 import json
 import logging
-import os
-import socket
-import sys
 from pathlib import Path
 
 logging.basicConfig(
@@ -19,7 +16,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 TCP_PORT = 2077
-UDP_PORT = 2078
 DOWNLOAD_DIR = Path("./downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
@@ -51,76 +47,6 @@ async def receive_msg(reader: asyncio.StreamReader) -> dict | None:
     except json.JSONDecodeError:
         log.error("Received malformed response from server.")
         return None
-
-
-# -------------
-# UDP listener
-# -------------
-
-class UDPNotifyProtocol(asyncio.DatagramProtocol):
-    def datagram_received(self, data: bytes, addr):
-        try:
-            msg = json.loads(data.decode())
-            if msg.get("type") == "NOTIFY":
-                event = msg.get("event", "?")
-                filename = msg.get("filename", "?")
-                print(f"\n*** SERVER NOTIFICATION: {event} → {filename} ***\n> ", end="", flush=True)
-        except Exception:
-            pass
-
-    def error_received(self, exc):
-        log.debug("UDP error: %s", exc)
-
-
-async def start_udp_listener(local_udp_port: int):
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.create_datagram_endpoint(
-            UDPNotifyProtocol, local_addr=("0.0.0.0", local_udp_port)
-        )
-        log.info("UDP notification listener on port %d", local_udp_port)
-    except OSError as e:
-        log.warning("Could not bind UDP port %d: %s (notifications disabled)", local_udp_port, e)
-
-
-# --------------
-# UDP discovery
-# --------------
-
-async def discover_server(broadcast_addr: str = "255.255.255.255") -> str | None:
-    """Send a UDP DISCOVER and wait for DISCOVER_ACK. Returns server IP or None."""
-    msg = json.dumps({"type": "DISCOVER"}).encode()
-    loop = asyncio.get_running_loop()
-    result = asyncio.Future()
-
-    class DiscoverProtocol(asyncio.DatagramProtocol):
-        def __init__(self, transport_holder):
-            self._t = transport_holder
-
-        def connection_made(self, transport):
-            self._t.append(transport)
-            transport.sendto(msg, (broadcast_addr, UDP_PORT))
-
-        def datagram_received(self, data, addr):
-            try:
-                resp = json.loads(data.decode())
-                if resp.get("type") == "DISCOVER_ACK" and not result.done():
-                    result.set_result(addr[0])
-            except Exception:
-                pass
-
-    transport_holder = []
-    transport, _ = await loop.create_datagram_endpoint(
-        lambda: DiscoverProtocol(transport_holder),
-        local_addr=("0.0.0.0", 0),
-        allow_broadcast=True,
-    )
-    try:
-        return await asyncio.wait_for(result, timeout=3.0)
-    except asyncio.TimeoutError:
-        return None
-    finally:
-        transport.close()
 
 
 # ------------------------
@@ -239,8 +165,6 @@ async def cmd_delete(reader, writer, filename: str):
 # ----------------------
 
 async def run_client(host: str, username: str, password: str):
-    local_tcp_port = None  # will be set after connect
-
     # Try connecting with retry + backoff
     reader, writer = None, None
     for attempt in range(1, MAX_RETRIES + 1):
@@ -267,11 +191,6 @@ async def run_client(host: str, username: str, password: str):
     if not writer:
         log.error("Could not connect after %d attempts. Exiting.", MAX_RETRIES)
         return
-
-    # Start UDP notification listener (client UDP port = TCP port + 1 by convention)
-    # The server uses this deterministic port rule when broadcasting NOTIFY events.
-    udp_listen_port = local_tcp_port + 1
-    await start_udp_listener(udp_listen_port)
 
     # Authenticate
     send_msg(writer, "AUTH", {"username": username, "password": password})
@@ -306,7 +225,6 @@ async def run_client(host: str, username: str, password: str):
                 print("  upload <local_path>   — upload a file")
                 print("  download <filename>   — download a file")
                 print("  delete <filename>     — delete a file from server")
-                print("  discover              — broadcast UDP discovery")
                 print("  quit                  — disconnect and exit")
 
             elif cmd == "list":
@@ -329,14 +247,6 @@ async def run_client(host: str, username: str, password: str):
                     print("  Usage: delete <filename>")
                 else:
                     await cmd_delete(reader, writer, arg)
-
-            elif cmd == "discover":
-                print("  Broadcasting UDP discovery...")
-                ip = await discover_server()
-                if ip:
-                    print(f"  Found RFP server at {ip}")
-                else:
-                    print("  No server responded.")
 
             elif cmd == "quit":
                 send_msg(writer, "QUIT")
@@ -370,21 +280,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="RFP Client")
-    parser.add_argument("host", nargs="?", default=None, help="Server IP (omit to discover via UDP)")
+    parser.add_argument("host", help="Server IP or hostname")
     parser.add_argument("-u", "--username", default="guest")
     parser.add_argument("-p", "--password", default="guest123")
     args = parser.parse_args()
 
     async def main():
-        host = args.host
-        if not host:
-            print("No host specified — broadcasting UDP discovery...")
-            host = await discover_server()
-            if not host:
-                print("No server found. Specify host manually: python client.py <host>")
-                return
-            print(f"Found server at {host}")
-        await run_client(host, args.username, args.password)
+        await run_client(args.host, args.username, args.password)
 
     try:
         asyncio.run(main())

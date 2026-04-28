@@ -1,15 +1,11 @@
 """
 RFP (Remote File Protocol) Server
 TCP port 2077 - file transfer and control
-UDP port 2078 - directory change notifications and discovery
 """
 
 import asyncio
 import json
 import logging
-import os
-import struct
-import time
 from pathlib import Path
 
 logging.basicConfig(
@@ -25,16 +21,11 @@ log = logging.getLogger(__name__)
 
 TCP_HOST = "0.0.0.0"
 TCP_PORT = 2077
-UDP_PORT = 2078
 STORAGE_DIR = Path("./server_files")
 STORAGE_DIR.mkdir(exist_ok=True)
 
 # Simple credential store (username : password)
 USERS = {"dev": "dev123", "user": "user123", "guest": "guest123"}
-
-# Track connected clients for UDP broadcasts: addr -> (reader, writer, username)
-connected_clients: dict[str, tuple] = {}
-
 
 # --------
 # Helpers
@@ -59,53 +50,6 @@ async def receive_msg(reader: asyncio.StreamReader) -> dict | None:
         return json.loads(line.decode().strip())
     except json.JSONDecodeError:
         return {"type": "MALFORMED"}
-
-
-# ----------------------------------
-# UDP — notifications and discovery
-# ----------------------------------
-
-class UDPProtocol(asyncio.DatagramProtocol):
-    def __init__(self):
-        self.transport = None
-
-    def connection_made(self, transport):
-        self.transport = transport
-        log.info("UDP socket ready on port %d", UDP_PORT)
-
-    def datagram_received(self, data: bytes, addr: tuple):
-        try:
-            msg = json.loads(data.decode())
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            log.warning("UDP malformed datagram from %s", addr)
-            return
-
-        if msg.get("type") == "DISCOVER":
-            log.info("UDP DISCOVER from %s", addr)
-            response = json.dumps({"type": "DISCOVER_ACK", "server": "RFP/1.0", "tcp_port": TCP_PORT})
-            self.transport.sendto(response.encode(), addr)
-
-    def error_received(self, exc):
-        log.error("UDP error: %s", exc)
-
-    def broadcast_notify(self, event: str, filename: str):
-        """Send a NOTIFY datagram to every known client UDP address."""
-        msg = json.dumps({"type": "NOTIFY", "event": event, "filename": filename})
-        for addr_str in list(connected_clients.keys()):
-            host, port_str = addr_str.split(":")
-            udp_addr = (host, int(port_str) + 1)  # convention: client UDP = TCP port + 1
-            try:
-                self.transport.sendto(msg.encode(), udp_addr)
-            except Exception as e:
-                log.debug("UDP notify failed to %s: %s", udp_addr, e)
-
-
-udp_protocol: UDPProtocol | None = None
-
-
-def notify_all(event: str, filename: str):
-    if udp_protocol:
-        udp_protocol.broadcast_notify(event, filename)
 
 
 # -------------------------
@@ -136,7 +80,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             return
 
         username = uname
-        connected_clients[peer_str] = (reader, writer, username)
         send_msg(writer, "AUTH_OK", {"username": username})
         await writer.drain()
         log.info("User '%s' authenticated from %s", username, peer_str)
@@ -204,7 +147,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     send_msg(writer, "OK", {"detail": f"Uploaded {filename} ({received} bytes)"})
                     await writer.drain()
                     log.info("'%s' uploaded '%s' (%d bytes)", username, filename, received)
-                    notify_all("ADDED", filename)
                 else:
                     dest.unlink(missing_ok=True)
                     send_msg(writer, "ERR", {"code": "INCOMPLETE", "detail": "Transfer incomplete"})
@@ -240,7 +182,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 else:
                     target.unlink()
                     send_msg(writer, "OK", {"detail": f"Deleted {filename}"})
-                    notify_all("DELETED", filename)
                     log.info("'%s' deleted '%s'", username, filename)
                 await writer.drain()
 
@@ -261,7 +202,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     except Exception as e:
         log.error("Unexpected error for '%s': %s", username or peer_str, e, exc_info=True)
     finally:
-        connected_clients.pop(peer_str, None)
         try:
             writer.close()
             await writer.wait_closed()
@@ -274,19 +214,9 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 # ------------
 
 async def main():
-    global udp_protocol
-
-    # Start UDP endpoint
-    loop = asyncio.get_running_loop()
-    transport, protocol = await loop.create_datagram_endpoint(
-        UDPProtocol, local_addr=(TCP_HOST, UDP_PORT)
-    )
-    udp_protocol = protocol
-
-    # Start TCP server
     server = await asyncio.start_server(handle_client, TCP_HOST, TCP_PORT)
     addrs = [s.getsockname() for s in server.sockets]
-    log.info("RFP server started — TCP %s, UDP port %d", addrs, UDP_PORT)
+    log.info("RFP server started — TCP %s", addrs)
     log.info("Serving files from: %s", STORAGE_DIR.resolve())
 
     async with server:
