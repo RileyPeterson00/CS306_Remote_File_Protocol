@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 TCP_HOST = "0.0.0.0"
 TCP_PORT = 2077
-IO_TIMEOUT = 300.0
+IO_TIMEOUT = 300.0 # 5 minutes
 STORAGE_DIR = Path("./server_files")
 STORAGE_DIR.mkdir(exist_ok=True)
 
@@ -62,7 +62,7 @@ async def receive_msg(reader: asyncio.StreamReader) -> dict | None:
     try:
         line = await asyncio.wait_for(reader.readline(), timeout=IO_TIMEOUT)
     except asyncio.TimeoutError:
-        return None
+        return {"type": "TIMEOUT"}
     if not line:
         return None
     try:
@@ -85,6 +85,11 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     try:
         # AUTH phase
         msg = await receive_msg(reader)
+        if msg and msg.get("type") == "TIMEOUT":
+            send_msg(writer, "ERR", {"code": "SESSION_TIMEOUT", "detail": "Authentication timed out due to inactivity"})
+            await writer.drain()
+            log.info("Auth timeout from %s", peer_str)
+            return
         if not msg or msg.get("type") != "AUTH":
             send_msg(writer, "ERR", {"code": "AUTH_REQUIRED", "detail": "First message must be AUTH"})
             await writer.drain()
@@ -106,6 +111,11 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         # Command loop
         while True:
             msg = await receive_msg(reader)
+            if msg and msg.get("type") == "TIMEOUT":
+                send_msg(writer, "ERR", {"code": "SESSION_TIMEOUT", "detail": "Disconnected due to inactivity"})
+                await writer.drain()
+                log.info("Client '%s' (%s) timed out due to inactivity", username, peer_str)
+                break
             if msg is None:
                 log.info("Client '%s' (%s) disconnected", username, peer_str)
                 break

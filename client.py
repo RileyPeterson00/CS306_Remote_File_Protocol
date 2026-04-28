@@ -21,8 +21,12 @@ DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 MAX_RETRIES = 3
 CONNECT_TIMEOUT = 5.0
-IO_TIMEOUT = 30.0
+IO_TIMEOUT = 300.0 # 5 minutes
 
+
+class SessionTimeoutError(Exception):
+    # Custom exception for when server ends session due to inactivity
+    pass
 
 # --------
 # Helpers
@@ -43,10 +47,13 @@ async def receive_msg(reader: asyncio.StreamReader) -> dict | None:
     if not line:
         return None
     try:
-        return json.loads(line.decode().strip())
+        msg = json.loads(line.decode().strip())
     except json.JSONDecodeError:
         log.error("Received malformed response from server.")
         return None
+    if msg.get("type") == "ERR" and msg.get("code") == "SESSION_TIMEOUT":
+        raise SessionTimeoutError(msg.get("detail", "Disconnected due to inactivity"))
+    return msg
 
 
 # ------------------------
@@ -258,6 +265,8 @@ async def run_client(host: str, username: str, password: str):
 
     except ConnectionResetError:
         log.error("Server closed the connection unexpectedly.")
+    except SessionTimeoutError as e:
+        log.error("%s", e)
     except asyncio.TimeoutError:
         log.error("Operation timed out.")
     except Exception as e:
