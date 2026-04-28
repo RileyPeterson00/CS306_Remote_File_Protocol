@@ -201,6 +201,7 @@ async def run_client(host: str, username: str, password: str):
         detail = resp.get("detail", "unknown") if resp else "no response"
         log.error("Authentication failed: %s", detail)
         writer.close()
+        await writer.wait_closed()
         return
 
     print(f"\nAuthenticated as '{username}'. Type 'help' for commands.\n")
@@ -208,8 +209,6 @@ async def run_client(host: str, username: str, password: str):
     try:
         while True:
             try:
-                # `input()` blocks, so run it in a thread to keep the event loop responsive
-                # for network I/O and incoming UDP notifications.
                 line = await asyncio.get_event_loop().run_in_executor(None, lambda: input("> "))
             except EOFError:
                 break
