@@ -281,8 +281,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="RFP Client")
     parser.add_argument("host", help="Server IP or hostname")
-    parser.add_argument("-u", "--username", default="guest")
-    parser.add_argument("-p", "--password", default="guest123")
+    parser.add_argument("-u", required=True, help="Username")
+    parser.add_argument("-p", required=True, help="Password")
     args = parser.parse_args()
 
     async def main():

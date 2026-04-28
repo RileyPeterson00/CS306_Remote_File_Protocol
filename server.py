@@ -6,6 +6,7 @@ TCP port 2077 - file transfer and control
 import asyncio
 import json
 import logging
+import socket
 from pathlib import Path
 
 logging.basicConfig(
@@ -25,7 +26,12 @@ STORAGE_DIR = Path("./server_files")
 STORAGE_DIR.mkdir(exist_ok=True)
 
 # Simple credential store (username : password)
-USERS = {"dev": "dev123", "user": "user123", "guest": "guest123"}
+USERS = {
+        "dev": "dev123",
+        "user": "user123",
+        "guest": "guest123",
+        "admin": "admin123"
+        }
 
 # --------
 # Helpers
@@ -33,9 +39,21 @@ USERS = {"dev": "dev123", "user": "user123", "guest": "guest123"}
 
 def send_msg(writer: asyncio.StreamWriter, msg_type: str, payload: dict) -> None:
     """Encode and send a JSON message terminated with \r\n."""
-    # All control messages are "one JSON object per line" so both sides can parse stream data reliably with `readline()` even over a TCP byte stream.
     line = json.dumps({"type": msg_type, **payload}) + "\r\n"
     writer.write(line.encode())
+
+
+def get_connect_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # This lets us discover the IP to connect the client to
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip and ip != "0.0.0.0":
+                return ip
+    except OSError:
+        pass
+    return "127.0.0.1"
 
 
 async def receive_msg(reader: asyncio.StreamReader) -> dict | None:
@@ -132,8 +150,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
                 received = 0
                 with open(dest, "wb") as fh:
-                    # File bytes come right after READY, so keep reading fixed-size chunks
-                    # until we reach the announced file size.
+                    # File bytes come right after READY, so keep reading fixed-size chunks until we reach the announced file size.
                     while received < filesize:
                         chunk = await asyncio.wait_for(
                             reader.read(min(4096, filesize - received)), timeout=30.0
@@ -162,8 +179,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                     continue
 
                 filesize = src.stat().st_size
-                # First send metadata (name + size), then stream raw bytes so the
-                # client knows exactly how many bytes to expect.
+                # First send metadata (name + size), then stream raw bytes so the client knows exactly how many bytes to expect.
                 send_msg(writer, "FILE_DATA", {"filename": filename, "size": filesize})
                 await writer.drain()
 
@@ -215,9 +231,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 async def main():
     server = await asyncio.start_server(handle_client, TCP_HOST, TCP_PORT)
-    addrs = [s.getsockname() for s in server.sockets]
-    log.info("RFP server started — TCP %s", addrs)
-    log.info("Serving files from: %s", STORAGE_DIR.resolve())
+    log.info("RFP server started")
+    connect_ip = get_connect_ip()
+    log.info("Connect from same PC: 127.0.0.1")
+    log.info("Connect from another device: %s", connect_ip)
 
     async with server:
         await server.serve_forever()
