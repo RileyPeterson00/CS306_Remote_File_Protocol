@@ -285,7 +285,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     async def main():
-        await run_client(args.host, args.username, args.password)
+        await run_client(args.host, args.u, args.p)
 
     try:
         asyncio.run(main())
