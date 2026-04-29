@@ -13,10 +13,23 @@ This project is a simple client-server file transfer system built with Python `a
 
 ### 2) Message format
 
-Control messages are JSON objects terminated by `\r\n` (one message per line), for example:
+Control messages are JSON objects terminated by `\r\n` (one message per line).
 
-- `AUTH`, `LIST`, `UPLOAD`, `DOWNLOAD`, `DELETE`, `QUIT`
-- responses like `AUTH_OK`, `LIST_RESP`, `READY`, `FILE_DATA`, `OK`, `ERR`
+| Message Type | Sent By | Description |
+| --- | --- | --- |
+| `AUTH` | Client | Authenticate with `username` and `password` as the first message in a session. |
+| `AUTH_OK` | Server | Authentication succeeded; session is now authorized. |
+| `AUTH_ERR` | Server | Authentication failed (invalid credentials). |
+| `LIST` | Client | Request a listing of files available on the server. |
+| `LIST_RESP` | Server | Return file list payload (`files` with names and sizes). |
+| `UPLOAD` | Client | Request to upload a file (`filename`, `size`) to the server. |
+| `READY` | Server | Upload pre-checks passed; client can start streaming raw file bytes. |
+| `DOWNLOAD` | Client | Request to download a specific server file (`filename`). |
+| `FILE_DATA` | Server | Download metadata header (`filename`, `size`) before streaming raw file bytes. |
+| `DELETE` | Client | Request deletion of a specific server file (`filename`). |
+| `QUIT` | Client | Request graceful session termination. |
+| `OK` | Server | Generic success response (for example after upload, delete, or quit). |
+| `ERR` | Server | Generic error response with `code` and optional `detail`. |
 
 Raw file bytes are streamed after the relevant control message (`READY` for upload, `FILE_DATA` for download).
 
