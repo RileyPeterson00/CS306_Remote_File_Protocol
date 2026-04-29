@@ -4,7 +4,6 @@ This project is a simple client-server file transfer system built with Python `a
 
 - `server.py` hosts files and handles commands over TCP.
 - `client.py` connects to the server and gives an interactive command-line interface.
-- This version is TCP-only (no UDP discovery or notifications).
 
 ## How the Code Works
 
