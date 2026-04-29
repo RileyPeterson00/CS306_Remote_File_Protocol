@@ -171,20 +171,20 @@ async def cmd_delete(reader, writer, filename: str):
 # Main interactive loop
 # ----------------------
 
-async def run_client(host: str, username: str, password: str):
+async def run_client(server_ip: str, username: str, password: str):
     # Try connecting with retry + backoff
     reader, writer = None, None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            log.info("Connecting to %s:%d (attempt %d/%d)...", host, TCP_PORT, attempt, MAX_RETRIES)
+            log.info("Connecting to %s:%d (attempt %d/%d)...", server_ip, TCP_PORT, attempt, MAX_RETRIES)
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, TCP_PORT), timeout=CONNECT_TIMEOUT
+                asyncio.open_connection(server_ip, TCP_PORT), timeout=CONNECT_TIMEOUT
             )
             local_tcp_port = writer.get_extra_info("sockname")[1]
             log.info("Connected from local port %d", local_tcp_port)
             break
         except ConnectionRefusedError:
-            log.error("Connection refused — is the server running on %s:%d?", host, TCP_PORT)
+            log.error("Connection refused — is the server running on %s:%d?", server_ip, TCP_PORT)
         except asyncio.TimeoutError:
             log.error("Connection timed out.")
         except OSError as e:
@@ -287,14 +287,14 @@ async def run_client(host: str, username: str, password: str):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="RFP Client")
-    parser.add_argument("host", help="Server IP or hostname")
-    parser.add_argument("-u", required=True, help="Username")
-    parser.add_argument("-p", required=True, help="Password")
+    parser = argparse.ArgumentParser(description="RFP Client", formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
+    parser.add_argument("-ip", metavar="SERVER_IP", required=True, dest="ip")
+    parser.add_argument("-u", metavar="USERNAME", required=True)
+    parser.add_argument("-p", metavar="PASSWORD", required=True)
     args = parser.parse_args()
 
     async def main():
-        await run_client(args.host, args.u, args.p)
+        await run_client(args.ip, args.u, args.p)
 
     try:
         asyncio.run(main())
