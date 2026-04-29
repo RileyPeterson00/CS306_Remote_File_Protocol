@@ -60,6 +60,7 @@ Important validation in the server:
   - `receive_msg()` uses a read timeout (`IO_TIMEOUT`).
   - If timeout happens or no data arrives, it returns `None` (treated as failure by command handlers).
   - If JSON is malformed, client logs an error and treats response as invalid.
+  - If server sends `ERR` with `SESSION_TIMEOUT`, client exits the session cleanly.
 
 - **Command-level checks**
   - `upload`: verifies local file exists before contacting server.
@@ -94,8 +95,10 @@ Important validation in the server:
 
 - **Timeout/disconnect robustness**
   - Per-message reads are timeout-protected.
+  - Inactivity timeout is controlled by `IO_TIMEOUT` (currently 300 seconds).
+  - On inactivity timeout, server sends `ERR` with `SESSION_TIMEOUT` and disconnects the client.
   - Handles `ConnectionResetError`, timeout, and unexpected exceptions with logs.
-  - Always removes client from `connected_clients` and closes writer in `finally`.
+  - Always closes writer in `finally`.
 
 ### Typical error codes you will see
 
@@ -108,6 +111,7 @@ Important validation in the server:
 - `NOT_FOUND`: requested file does not exist.
 - `INCOMPLETE`: file upload disconnected/ended early.
 - `UNKNOWN_CMD`: unsupported command type.
+- `SESSION_TIMEOUT`: server closed session due to inactivity.
 
 ## Quick Start
 
@@ -130,7 +134,7 @@ Server storage directory is created automatically at `./server_files`.
 In another terminal:
 
 ```bash
-python client.py <server_ip> -u guest -p guest123
+python client.py -ip <server_ip> -u guest -p guest123
 ```
 
 Built-in users in `server.py`:
